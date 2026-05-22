@@ -9,6 +9,13 @@ class App {
     this.render();
     this.setupEventListeners();
     await this.loadConfig();
+
+    const statusService = new StatusService(this.config);
+    statusService.startCountdownUpdates(() => {
+      const countdown = statusService.getCountdown();
+      const display = document.getElementById('countdown-display');
+      if (display) display.textContent = countdown;
+    });
   }
 
   render() {
@@ -49,19 +56,25 @@ class App {
   }
 
   renderStatusView() {
+    const statusService = new StatusService(this.config);
+    const currentWindow = statusService.getCurrentWindow();
+    const countdown = statusService.getCountdown();
+
     return `
-      <h2>Claude Anchors</h2>
+      <h2>Status</h2>
       <div class="subtitle">Current window and next anchor</div>
       <div class="status-box">
         <div class="status-label">CURRENT WINDOW</div>
-        <div class="status-value" id="current-window">—</div>
+        <div class="status-value">${currentWindow.window}</div>
       </div>
       <div class="status-box">
         <div class="status-label">Next anchor fires in</div>
-        <div class="status-value" id="countdown">—</div>
+        <div class="status-value" id="countdown-display">${countdown}</div>
       </div>
       <button onclick="app.fireNow()">Fire Now</button>
-      <button onclick="app.togglePause()" style="margin-left: 8px;">Pause</button>
+      <button onclick="app.togglePause()" style="margin-left: 8px;">
+        ${this.config.isPaused ? 'Resume' : 'Pause'}
+      </button>
     `;
   }
 
