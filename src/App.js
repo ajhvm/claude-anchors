@@ -196,9 +196,22 @@ class App {
   }
 
   async loadConfig() {
-    this.config = await window.api.invoke('load-config');
-    document.getElementById('timezone').value = this.config.timezone || 'America/Los_Angeles';
-    document.getElementById('smart-adjustment').checked = this.config.smartAdjustment !== false;
+    try {
+      this.config = await window.api.invoke('load-config');
+      if (!this.config) throw new Error('No config returned');
+      document.getElementById('timezone').value = this.config.timezone || 'America/Los_Angeles';
+      document.getElementById('smart-adjustment').checked = this.config.smartAdjustment !== false;
+    } catch (err) {
+      console.error('Failed to load config:', err);
+      alert('Error loading settings. Using defaults.');
+      this.config = {
+        timezone: 'America/Los_Angeles',
+        smartAdjustment: true,
+        isPaused: false,
+        schedule: {},
+        prompts: {}
+      };
+    }
   }
 
   async saveSettings() {

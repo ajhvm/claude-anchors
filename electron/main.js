@@ -95,7 +95,12 @@ ipcMain.on('resume-all', () => {
 });
 
 ipcMain.handle('apply-config', (event, config) => {
-  return taskManager.updateTasks(config);
+  try {
+    return taskManager.updateTasks(config);
+  } catch (err) {
+    console.error('IPC error in apply-config:', err);
+    return false;
+  }
 });
 
 app.on('ready', () => {
