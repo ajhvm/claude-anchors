@@ -197,8 +197,18 @@ class App {
     }
   }
 
-  fireNow() {
-    window.api.send('fire-now');
+  async fireNow() {
+    const statusService = new StatusService(this.config);
+    const next = statusService.getNextAnchor();
+    if (!next) {
+      alert('No more anchors today');
+      return;
+    }
+
+    const prompt = this.config.prompts[next.anchor];
+    alert(`Firing ${next.anchor}...`);
+    await window.api.invoke('fire-anchor', next.anchor, prompt);
+    alert('Anchor fired!');
   }
 
   togglePause() {

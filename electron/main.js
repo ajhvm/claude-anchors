@@ -1,10 +1,12 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
+const TaskManager = require(path.join(__dirname, '../src/services/TaskManager'));
 
 let mainWindow;
 let trayIcon;
 const configManager = new ConfigManager();
+const taskManager = new TaskManager();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -61,6 +63,15 @@ ipcMain.handle('get-logs-dir', () => {
   } catch (err) {
     console.error('IPC error getting logs dir:', err);
     return null;
+  }
+});
+
+ipcMain.handle('fire-anchor', (event, anchor, prompt) => {
+  try {
+    return taskManager.fireAnchor(anchor, prompt);
+  } catch (err) {
+    console.error('IPC error firing anchor:', err);
+    return false;
   }
 });
 
