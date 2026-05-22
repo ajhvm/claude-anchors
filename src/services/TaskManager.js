@@ -88,32 +88,136 @@ class TaskManager {
     }
   }
 
+  async registerTaskMacOS(anchor, timeStr) {
+    const [hourStr, minuteStr] = timeStr.split(':');
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+
+    if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      console.error(`Invalid timeStr for ${anchor}: ${timeStr}`);
+      return false;
+    }
+
+    const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+    const scriptDir = path.join(__dirname, '../../scripts');
+    const scriptPath = path.join(scriptDir, 'anchor-runner.sh');
+    const plistName = `com.claudeanchors.${anchor}.plist`;
+    const plistPath = path.join(launchAgentsDir, plistName);
+
+    const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claudeanchors.${anchor}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${scriptPath}</string>
+    <string>${anchor}</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>${hour}</integer>
+    <key>Minute</key>
+    <integer>${minute}</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${path.join(os.homedir(), '.claude-anchors', 'logs', anchor + '.log')}</string>
+  <key>StandardErrorPath</key>
+  <string>${path.join(os.homedir(), '.claude-anchors', 'logs', anchor + '.log')}</string>
+</dict>
+</plist>`;
+
+    try {
+      const fs = require('fs');
+      if (!fs.existsSync(launchAgentsDir)) {
+        fs.mkdirSync(launchAgentsDir, { recursive: true });
+      }
+      fs.writeFileSync(plistPath, plistContent, 'utf-8');
+    } catch (err) {
+      console.error(`Error writing plist for ${anchor}:`, err.message);
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      // Unload first in case it's already loaded, then load the new one
+      execFile('launchctl', ['unload', plistPath], () => {
+        execFile('launchctl', ['load', plistPath], (err) => {
+          if (err) console.error(`Error loading ${plistName}:`, err.message);
+          resolve(!err);
+        });
+      });
+    });
+  }
+
+  async updateTasksMacOS(config) {
+    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+    const baseDay = 'monday';
+
+    for (const anchor of anchors) {
+      const timeStr = config.schedule[baseDay][anchor];
+      await this.registerTaskMacOS(anchor, timeStr);
+    }
+  }
+
+  async pauseAllMacOS() {
+    const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+
+    for (const anchor of anchors) {
+      const plistPath = path.join(launchAgentsDir, `com.claudeanchors.${anchor}.plist`);
+      execFile('launchctl', ['unload', plistPath], (err) => {
+        if (err) console.error(`Error unloading ${anchor}:`, err.message);
+      });
+    }
+  }
+
+  async resumeAllMacOS() {
+    const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+
+    for (const anchor of anchors) {
+      const plistPath = path.join(launchAgentsDir, `com.claudeanchors.${anchor}.plist`);
+      execFile('launchctl', ['load', plistPath], (err) => {
+        if (err) console.error(`Error loading ${anchor}:`, err.message);
+      });
+    }
+  }
+
   async registerTask(anchor, timeStr) {
     if (this.isWindows) {
       return this.registerTaskWindows(anchor, timeStr);
+    } else if (this.platform === 'darwin') {
+      return this.registerTaskMacOS(anchor, timeStr);
     }
-    // macOS implemented in Task 9
   }
 
   async updateTasks(config) {
     if (this.isWindows) {
       return this.updateTasksWindows(config);
+    } else if (this.platform === 'darwin') {
+      return this.updateTasksMacOS(config);
     }
-    // macOS implemented in Task 9
   }
 
   async pauseAll() {
     if (this.isWindows) {
       return this.pauseAllWindows();
+    } else if (this.platform === 'darwin') {
+      return this.pauseAllMacOS();
     }
-    // macOS implemented in Task 9
   }
 
   async resumeAll() {
     if (this.isWindows) {
       return this.resumeAllWindows();
+    } else if (this.platform === 'darwin') {
+      return this.resumeAllMacOS();
     }
-    // macOS implemented in Task 9
   }
 }
 
