@@ -1,6 +1,6 @@
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const ConfigManager = require('./ConfigManager');
 
 class TaskManager {
@@ -28,22 +28,26 @@ class TaskManager {
   }
 
   async registerTaskWindows(anchor, timeStr) {
-    const { exec } = require('child_process');
     const scriptDir = path.join(__dirname, '../../scripts');
-    const scriptPath = path.join(scriptDir, 'anchor-runner.ps1').replace(/\\/g, '\\\\');
-
+    const scriptPath = path.join(scriptDir, 'anchor-runner.ps1');
     const taskName = `ClaudeAnchor-${anchor}`;
-    const [hour, minute] = timeStr.split(':');
+    const [hour, minute] = timeStr.split(':').map(n => parseInt(n, 10));
 
-    const powershellScript = `
-$trigger = New-ScheduledTaskTrigger -Daily -At '${hour}:${minute}'
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File \\"${scriptPath}\\" -anchor \\"${anchor}\\"'
-$settings = New-ScheduledTaskSettingsSet -WakeToRun -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName '${taskName}' -Trigger $trigger -Action $action -Settings $settings -Force
-`.trim();
+    // Validate timeStr
+    if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      console.error(`Invalid timeStr for ${anchor}: ${timeStr}`);
+      return false;
+    }
+
+    const psScript = [
+      `$trigger = New-ScheduledTaskTrigger -Daily -At '${hour}:${minute < 10 ? '0' + minute : minute}'`,
+      `$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File \\"${scriptPath.replace(/\\/g, '\\\\')}\\" -anchor ${anchor}'`,
+      `$settings = New-ScheduledTaskSettingsSet -WakeToRun -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)`,
+      `Register-ScheduledTask -TaskName '${taskName}' -Trigger $trigger -Action $action -Settings $settings -Force`
+    ].join('; ');
 
     return new Promise((resolve) => {
-      exec(`powershell -NoProfile -Command "${powershellScript.replace(/"/g, '\\"')}"`, (err) => {
+      execFile('powershell.exe', ['-NoProfile', '-Command', psScript], (err) => {
         if (err) console.error(`Error registering ${taskName}:`, err.message);
         resolve(!err);
       });
