@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
 const TaskManager = require(path.join(__dirname, '../src/services/TaskManager'));
+const LogReader = require(path.join(__dirname, '../src/services/LogReader'));
 
 let mainWindow;
 let trayIcon;
@@ -63,6 +64,16 @@ ipcMain.handle('get-logs-dir', () => {
   } catch (err) {
     console.error('IPC error getting logs dir:', err);
     return null;
+  }
+});
+
+ipcMain.handle('get-logs', () => {
+  try {
+    const logReader = new LogReader();
+    return logReader.getAllLogs();
+  } catch (err) {
+    console.error('IPC error getting logs:', err);
+    return [];
   }
 });
 

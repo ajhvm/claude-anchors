@@ -147,11 +147,46 @@ class App {
   }
 
   renderLogsView() {
+    // Fetch logs asynchronously after render
+    setTimeout(() => this.loadLogs(), 0);
     return `
       <h2>Logs</h2>
       <div class="subtitle">Recent anchor executions</div>
-      <div id="logs-list" style="font-family: monospace; font-size: 12px;"></div>
+      <div id="logs-container">Loading...</div>
     `;
+  }
+
+  async loadLogs() {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+
+    try {
+      const logs = await window.api.invoke('get-logs');
+
+      if (!logs || logs.length === 0) {
+        container.innerHTML = '<p style="color:#999;margin-top:16px;">No logs yet. Anchors will log here when they run.</p>';
+        return;
+      }
+
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;font-family:monospace;">';
+      html += '<thead><tr style="border-bottom:2px solid #eee;text-align:left;">';
+      html += '<th style="padding:8px;">Timestamp</th><th style="padding:8px;">Anchor</th><th style="padding:8px;">Status</th>';
+      html += '</tr></thead><tbody>';
+
+      logs.slice(0, 50).forEach(log => {
+        const statusColor = log.status === 'ok' ? '#16a34a' : log.status === 'error' ? '#dc2626' : '#999';
+        html += `<tr style="border-bottom:1px solid #f0f0f0;">
+          <td style="padding:8px;">${log.timestamp}</td>
+          <td style="padding:8px;">${log.anchor}</td>
+          <td style="padding:8px;color:${statusColor};font-weight:bold;">${log.status.toUpperCase()}</td>
+        </tr>`;
+      });
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    } catch (err) {
+      container.innerHTML = `<p style="color:#dc2626;">Error loading logs: ${err.message}</p>`;
+    }
   }
 
   switchView(view) {
