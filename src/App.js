@@ -66,30 +66,69 @@ class App {
   }
 
   renderSettingsView() {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const anchorLabels = {
+      w1Primary: 'W1 Primary',
+      w1Backup: 'W1 Backup',
+      w2Primary: 'W2 Primary',
+      w2Backup: 'W2 Backup',
+      w3Primary: 'W3 Primary',
+      w3Backup: 'W3 Backup',
+      w4Primary: 'W4 Primary',
+      w4Backup: 'W4 Backup'
+    };
+
+    let scheduleGrid = '<div style="overflow-x: auto; margin: 16px 0;"><table style="width: 100%; border-collapse: collapse;">';
+    scheduleGrid += '<tr><th>Day</th>' + anchors.map(a => `<th>${anchorLabels[a]}</th>`).join('') + '</tr>';
+
+    days.forEach((day, idx) => {
+      scheduleGrid += `<tr><td><strong>${dayLabels[idx]}</strong></td>`;
+      anchors.forEach(anchor => {
+        const value = this.config.schedule[day][anchor];
+        scheduleGrid += `<td><input type="time" id="time-${day}-${anchor}" value="${value}" style="width: 100%; padding: 4px;"></td>`;
+      });
+      scheduleGrid += '</tr>';
+    });
+    scheduleGrid += '</table></div>';
+
+    let promptsHtml = '<div style="margin-top: 16px;"><h3>Custom Prompts</h3>';
+    anchors.forEach(anchor => {
+      const prompt = this.config.prompts[anchor] || '';
+      promptsHtml += `
+        <div style="margin: 8px 0;">
+          <label>${anchorLabels[anchor]}</label><br>
+          <textarea id="prompt-${anchor}" style="width: 100%; height: 60px; padding: 8px; margin-top: 4px; font-family: monospace; font-size: 12px;">${prompt}</textarea>
+        </div>
+      `;
+    });
+    promptsHtml += '</div>';
+
     return `
       <h2>Settings</h2>
       <div class="subtitle">Configure your schedule and preferences</div>
-      <div>
+      <div style="margin: 16px 0;">
         <label>Timezone</label><br>
-        <select id="timezone" onchange="app.updateTimezone()">
-          <option>America/Los_Angeles</option>
-          <option>America/Denver</option>
-          <option>America/Chicago</option>
-          <option>America/New_York</option>
-          <option>Europe/London</option>
-          <option>Europe/Paris</option>
-          <option>Asia/Tokyo</option>
-          <option>Australia/Sydney</option>
+        <select id="timezone" style="width: 100%; padding: 8px; margin-top: 4px;">
+          <option value="America/Los_Angeles">America/Los_Angeles</option>
+          <option value="America/Denver">America/Denver</option>
+          <option value="America/Chicago">America/Chicago</option>
+          <option value="America/New_York">America/New_York</option>
+          <option value="Europe/London">Europe/London</option>
+          <option value="Europe/Paris">Europe/Paris</option>
+          <option value="Asia/Tokyo">Asia/Tokyo</option>
+          <option value="Australia/Sydney">Australia/Sydney</option>
         </select>
       </div>
-      <div style="margin-top: 16px;">
+      <div style="margin: 16px 0;">
         <label><input type="checkbox" id="smart-adjustment"> Smart Adjustment</label>
         <div class="subtitle">Auto-adjust remaining windows if an anchor runs late</div>
       </div>
-      <div style="margin-top: 16px;">
-        <h3>Daily Schedule</h3>
-        <div id="schedule-grid"></div>
-      </div>
+      <h3>Daily Schedule</h3>
+      ${scheduleGrid}
+      <h3>Custom Prompts</h3>
+      ${promptsHtml}
       <button onclick="app.saveSettings()" style="margin-top: 16px;">Save Settings</button>
     `;
   }
@@ -115,10 +154,34 @@ class App {
   }
 
   async saveSettings() {
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+
     this.config.timezone = document.getElementById('timezone').value;
     this.config.smartAdjustment = document.getElementById('smart-adjustment').checked;
-    await window.api.invoke('save-config', this.config);
-    alert('Settings saved!');
+
+    // Collect schedule times
+    days.forEach(day => {
+      this.config.schedule[day] = {};
+      anchors.forEach(anchor => {
+        const input = document.getElementById(`time-${day}-${anchor}`);
+        this.config.schedule[day][anchor] = input.value;
+      });
+    });
+
+    // Collect custom prompts
+    anchors.forEach(anchor => {
+      const textarea = document.getElementById(`prompt-${anchor}`);
+      this.config.prompts[anchor] = textarea.value;
+    });
+
+    const success = await window.api.invoke('save-config', this.config);
+    if (success) {
+      alert('Settings saved!');
+      await window.api.invoke('apply-config', this.config);
+    } else {
+      alert('Error saving settings');
+    }
   }
 
   fireNow() {
