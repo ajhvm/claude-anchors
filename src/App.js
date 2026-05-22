@@ -246,8 +246,17 @@ class App {
     alert('Anchor fired!');
   }
 
-  togglePause() {
-    window.api.send('toggle-pause');
+  async togglePause() {
+    this.config.isPaused = !this.config.isPaused;
+    await window.api.invoke('save-config', this.config);
+
+    if (this.config.isPaused) {
+      window.api.send('pause-all');
+    } else {
+      window.api.send('resume-all');
+    }
+
+    this.renderContent();
   }
 
   updateTimezone() {

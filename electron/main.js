@@ -86,6 +86,18 @@ ipcMain.handle('fire-anchor', (event, anchor, prompt) => {
   }
 });
 
+ipcMain.on('pause-all', () => {
+  taskManager.pauseAll();
+});
+
+ipcMain.on('resume-all', () => {
+  taskManager.resumeAll();
+});
+
+ipcMain.handle('apply-config', (event, config) => {
+  return taskManager.updateTasks(config);
+});
+
 app.on('ready', () => {
   createWindow();
   setupTray();
