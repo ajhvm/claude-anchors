@@ -17,4 +17,4 @@ if (-not (Test-Path $logDir)) {
 $claude = (Get-Command claude -ErrorAction SilentlyContinue).Source
 if (-not $claude) { $claude = "$env:APPDATA\npm\claude.cmd" }
 
-& $claude -p $prompt 2>&1 | Out-File -FilePath $logFile -Append -Encoding UTF8
+& $claude -p "$prompt" 2>&1 | Out-File -FilePath $logFile -Append -Encoding UTF8
