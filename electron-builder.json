@@ -1,0 +1,25 @@
+{
+  "appId": "com.claudeanchors.app",
+  "productName": "Claude Anchors",
+  "files": [
+    "electron/**/*",
+    "src/**/*",
+    "scripts/**/*",
+    "package.json",
+    "node_modules/**/*"
+  ],
+  "directories": {
+    "buildResources": "assets"
+  },
+  "win": {
+    "target": ["nsis", "portable"]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "category": "public.app-category.utilities"
+  }
+}
