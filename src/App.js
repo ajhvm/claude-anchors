@@ -10,6 +10,13 @@ class App {
     this.setupEventListeners();
     await this.loadConfig();
 
+    // Apply config to system tasks on first load
+    try {
+      await window.api.invoke('apply-config', this.config);
+    } catch (err) {
+      console.error('Error applying config on init:', err);
+    }
+
     const statusService = new StatusService(this.config);
     statusService.startCountdownUpdates(() => {
       const countdown = statusService.getCountdown();

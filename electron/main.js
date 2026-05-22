@@ -25,6 +25,12 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
 
+  // Initialize tasks based on saved config
+  const config = configManager.load();
+  taskManager.updateTasks(config).catch(err => {
+    console.error('Error initializing tasks on startup:', err);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -38,6 +44,8 @@ function createWindow() {
   if (process.env.NODE_ENV !== 'production') {
     mainWindow.webContents.openDevTools();
   }
+
+  mainWindow.show();
 }
 
 ipcMain.handle('load-config', () => {
