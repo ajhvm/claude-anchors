@@ -1,8 +1,10 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
+const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
 
 let mainWindow;
 let trayIcon;
+const configManager = new ConfigManager();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -34,6 +36,33 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 }
+
+ipcMain.handle('load-config', () => {
+  try {
+    return configManager.load();
+  } catch (err) {
+    console.error('IPC error loading config:', err);
+    return configManager.defaultConfig;
+  }
+});
+
+ipcMain.handle('save-config', (event, config) => {
+  try {
+    return configManager.save(config);
+  } catch (err) {
+    console.error('IPC error saving config:', err);
+    return false;
+  }
+});
+
+ipcMain.handle('get-logs-dir', () => {
+  try {
+    return configManager.getLogsDir();
+  } catch (err) {
+    console.error('IPC error getting logs dir:', err);
+    return null;
+  }
+});
 
 app.on('ready', () => {
   createWindow();
