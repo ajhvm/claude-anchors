@@ -67,24 +67,22 @@ class TaskManager {
   }
 
   async pauseAllWindows() {
-    const { exec } = require('child_process');
     const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
 
     for (const anchor of anchors) {
       const taskName = `ClaudeAnchor-${anchor}`;
-      exec(`powershell -NoProfile -Command "Disable-ScheduledTask -TaskName '${taskName}'"`, (err) => {
+      execFile('powershell.exe', ['-NoProfile', '-Command', `Disable-ScheduledTask -TaskName '${taskName}'`], (err) => {
         if (err) console.error(`Error disabling ${taskName}:`, err.message);
       });
     }
   }
 
   async resumeAllWindows() {
-    const { exec } = require('child_process');
     const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
 
     for (const anchor of anchors) {
       const taskName = `ClaudeAnchor-${anchor}`;
-      exec(`powershell -NoProfile -Command "Enable-ScheduledTask -TaskName '${taskName}'"`, (err) => {
+      execFile('powershell.exe', ['-NoProfile', '-Command', `Enable-ScheduledTask -TaskName '${taskName}'`], (err) => {
         if (err) console.error(`Error enabling ${taskName}:`, err.message);
       });
     }
