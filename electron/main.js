@@ -30,7 +30,9 @@ function createWindow() {
     mainWindow.hide();
   });
 
-  mainWindow.webContents.openDevTools();
+  if (process.env.NODE_ENV !== 'production') {
+    mainWindow.webContents.openDevTools();
+  }
 }
 
 app.on('ready', () => {
@@ -48,18 +50,30 @@ app.on('before-quit', () => {
 
 function setupTray() {
   const { Tray } = require('electron');
-  trayIcon = new Tray(path.join(__dirname, '../assets/icon.png'));
+  const fs = require('fs');
+
+  const iconPath = path.join(__dirname, '../assets/icon.png');
+
+  // Only create tray if icon exists; gracefully handle missing icon
+  if (!fs.existsSync(iconPath)) {
+    console.warn('Tray icon not found at ' + iconPath);
+    return;
+  }
+
+  trayIcon = new Tray(iconPath);
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show', click: () => mainWindow.show() },
-    { label: 'Pause', click: () => mainWindow.webContents.send('pause') },
-    { label: 'Resume', click: () => mainWindow.webContents.send('resume') },
+    { label: 'Show', click: () => mainWindow && mainWindow.show() },
+    { label: 'Pause', click: () => mainWindow && mainWindow.webContents.send('pause') },
+    { label: 'Resume', click: () => mainWindow && mainWindow.webContents.send('resume') },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]);
 
   trayIcon.setContextMenu(contextMenu);
   trayIcon.on('click', () => {
-    mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+    if (mainWindow) {
+      mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+    }
   });
 }
