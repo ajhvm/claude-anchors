@@ -91,3 +91,5 @@ class StatusService {
     if (this.updateInterval) clearInterval(this.updateInterval);
   }
 }
+
+if (typeof module !== 'undefined') module.exports = StatusService;

@@ -63,6 +63,9 @@ class App {
   }
 
   renderStatusView() {
+    if (!this.config || !this.config.schedule) {
+      return `<h2>Status</h2><p style="color:#999;">Loading...</p>`;
+    }
     const statusService = new StatusService(this.config);
     const currentWindow = statusService.getCurrentWindow();
     const countdown = statusService.getCountdown();
@@ -206,8 +209,10 @@ class App {
     try {
       this.config = await window.api.invoke('load-config');
       if (!this.config) throw new Error('No config returned');
-      document.getElementById('timezone').value = this.config.timezone || 'America/Los_Angeles';
-      document.getElementById('smart-adjustment').checked = this.config.smartAdjustment !== false;
+      const tzEl = document.getElementById('timezone');
+      if (tzEl) tzEl.value = this.config.timezone || 'America/Los_Angeles';
+      const saEl = document.getElementById('smart-adjustment');
+      if (saEl) saEl.checked = this.config.smartAdjustment !== false;
     } catch (err) {
       console.error('Failed to load config:', err);
       alert('Error loading settings. Using defaults.');
