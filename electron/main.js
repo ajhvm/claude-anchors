@@ -115,7 +115,20 @@ ipcMain.handle('apply-config', (event, config) => {
   }
 });
 
+function configureAutoStart() {
+  // Launch on login showing the window (taskbar presence), not hidden to tray.
+  const settings = { openAtLogin: true };
+  if (!app.isPackaged) {
+    // Dev run (`electron .`): point the login item at the electron binary +
+    // project dir so login relaunches the app rather than a bare Electron shell.
+    settings.path = process.execPath;
+    settings.args = [path.resolve(__dirname, '..')];
+  }
+  app.setLoginItemSettings(settings);
+}
+
 app.on('ready', () => {
+  configureAutoStart();
   createWindow();
   setupTray();
 });
