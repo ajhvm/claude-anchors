@@ -46,7 +46,7 @@ function createWindow() {
     mainWindow.hide();
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
 
