@@ -32,7 +32,7 @@ function testGetWindowStatesNoLogs() {
 
 function testGetWindowStatesStarted() {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const h = now.getHours();
   const startH = String(Math.max(h - 1, 0)).padStart(2, '0');
   const m = String(now.getMinutes()).padStart(2, '0');
@@ -50,7 +50,7 @@ function testGetWindowStatesStarted() {
 
 function testGetWindowStatesSkipped() {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const h = now.getHours();
   const startH = String(Math.max(h - 1, 0)).padStart(2, '0');
   const m = String(now.getMinutes()).padStart(2, '0');

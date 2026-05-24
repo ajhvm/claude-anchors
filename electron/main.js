@@ -1,15 +1,31 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, powerMonitor } = require('electron');
+const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
-const TaskManager = require(path.join(__dirname, '../src/services/TaskManager'));
+const AnchorRunner = require(path.join(__dirname, '../src/services/AnchorRunner'));
+const Scheduler = require(path.join(__dirname, '../src/services/Scheduler'));
 const LogReader = require(path.join(__dirname, '../src/services/LogReader'));
 const WindowDetector = require(path.join(__dirname, '../src/services/WindowDetector'));
+const StatusService = require(path.join(__dirname, '../src/services/StatusService'));
 
 let mainWindow;
 let trayIcon;
 const configManager = new ConfigManager();
-const taskManager = new TaskManager();
+const anchorRunner = new AnchorRunner(configManager);
 const windowDetector = new WindowDetector();
+const scheduler = new Scheduler(configManager, anchorRunner, { onUpdate: updateTrayStatus });
+
+// Single-instance lock: a second launch focuses the running app and exits,
+// so two schedulers never run at once.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -22,22 +38,10 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true
     },
-    show: false
+    show: false // start hidden to tray; no window/taskbar entry at login
   });
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
-
-  const config = configManager.load();
-
-  // updateTasks() sweeps legacy tasks internally before registering, so a
-  // separate cleanupLegacyTasks() call here would race the same unregisters.
-  taskManager.updateTasks(config).catch(err => {
-    console.error('Error initializing tasks on startup:', err);
-  });
-
-  windowDetector.detect(configManager).catch(err => {
-    console.error('WindowDetector error on startup:', err);
-  });
 
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.on('close', (e) => {
@@ -49,119 +53,131 @@ function createWindow() {
   if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
+  // NOTE: intentionally NOT calling mainWindow.show() — launches hidden.
+}
 
-  mainWindow.show();
+// Startup hidden sweep of leftover app-created tasks (safety net). Runs via
+// execFile with windowsHide:true → no console window. The redesigned app
+// creates no tasks, so every ClaudeAnchor-* found is stale and removed. The
+// legacy S4U tasks are removed separately by Remove-AnchorTasks.ps1 (elevation).
+function sweepLeftoverTasks() {
+  if (process.platform !== 'win32') return;
+  const psScript =
+    "Get-ScheduledTask | Where-Object { $_.TaskName -like 'ClaudeAnchor-*' } | " +
+    "ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue }";
+  execFile('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', psScript],
+    { windowsHide: true }, (err) => {
+      if (err) console.error('sweepLeftoverTasks error:', err.message);
+    });
+}
+
+function updateTrayStatus(status) {
+  if (!trayIcon) return;
+  let tip = 'Claude Anchors';
+  if (status.paused) {
+    tip += ' — Paused';
+  } else if (status.nextFireAt) {
+    const t = new Date(status.nextFireAt);
+    const hhmm = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    tip += ` — next ${status.nextAnchor} at ${hhmm}`;
+  }
+  if (status.lastResult && status.lastResult.ok === false) {
+    tip += ' ⚠ last fire failed';
+  }
+  trayIcon.setToolTip(tip);
 }
 
 ipcMain.handle('load-config', () => {
-  try {
-    return configManager.load();
-  } catch (err) {
-    console.error('IPC error loading config:', err);
-    return configManager.defaultConfig;
-  }
+  try { return configManager.load(); }
+  catch (err) { console.error('IPC load-config:', err); return configManager.defaultConfig; }
 });
 
 ipcMain.handle('save-config', (event, config) => {
-  try {
-    return configManager.save(config);
-  } catch (err) {
-    console.error('IPC error saving config:', err);
-    return false;
-  }
+  try { return configManager.save(config); }
+  catch (err) { console.error('IPC save-config:', err); return false; }
 });
 
 ipcMain.handle('get-logs-dir', () => {
-  try {
-    return configManager.getLogsDir();
-  } catch (err) {
-    console.error('IPC error getting logs dir:', err);
-    return null;
-  }
+  try { return configManager.getLogsDir(); }
+  catch (err) { console.error('IPC get-logs-dir:', err); return null; }
 });
 
 ipcMain.handle('get-logs', () => {
-  try {
-    const logReader = new LogReader();
-    return logReader.getAllLogs();
-  } catch (err) {
-    console.error('IPC error getting logs:', err);
-    return [];
-  }
+  try { return new LogReader().getAllLogs(); }
+  catch (err) { console.error('IPC get-logs:', err); return []; }
 });
 
-ipcMain.handle('fire-anchor', (event, anchor, scheduledTime) => {
-  try {
-    return taskManager.fireAnchor(anchor, scheduledTime);
-  } catch (err) {
-    console.error('IPC error firing anchor:', err);
-    return false;
-  }
+// Manual "Fire Now" from the renderer. scheduledTime arg kept for the existing
+// App.js call signature but is unused (Scheduler tracks timing).
+ipcMain.handle('fire-anchor', async (event, anchor) => {
+  try { return await scheduler.fireNow(anchor); }
+  catch (err) { console.error('IPC fire-anchor:', err); return false; }
 });
 
-ipcMain.handle('detect-window-duration', () => {
-  return windowDetector.detect(configManager);
-});
+ipcMain.handle('detect-window-duration', () => windowDetector.detect(configManager));
 
-ipcMain.on('pause-all', () => { taskManager.pauseAll(); });
-ipcMain.on('resume-all', () => { taskManager.resumeAll(); });
+ipcMain.on('pause-all', () => { scheduler.setPaused(true); });
+ipcMain.on('resume-all', () => { scheduler.setPaused(false); });
 
-ipcMain.handle('apply-config', (event, config) => {
-  try {
-    return taskManager.updateTasks(config);
-  } catch (err) {
-    console.error('IPC error in apply-config:', err);
-    return false;
-  }
+ipcMain.handle('apply-config', async () => {
+  try { return await scheduler.recompute(); }
+  catch (err) { console.error('IPC apply-config:', err); return false; }
 });
 
 function configureAutoStart() {
-  // Launch on login showing the window (taskbar presence), not hidden to tray.
+  // Launch on login (the app starts hidden to tray on its own).
   const settings = { openAtLogin: true };
   if (!app.isPackaged) {
-    // Dev run (`electron .`): point the login item at the electron binary +
-    // project dir so login relaunches the app rather than a bare Electron shell.
     settings.path = process.execPath;
     settings.args = [path.resolve(__dirname, '..')];
   }
   app.setLoginItemSettings(settings);
 }
 
-app.on('ready', () => {
-  configureAutoStart();
-  createWindow();
-  setupTray();
-});
-
-app.on('window-all-closed', () => {
-  // Don't quit; stay in tray
-});
-
-app.on('before-quit', () => {
-  app.quitting = true;
-});
-
 function setupTray() {
-  const { Tray } = require('electron');
-  const fs = require('fs');
-
   const iconPath = path.join(__dirname, '../assets/icon.png');
   if (!fs.existsSync(iconPath)) {
     console.warn('Tray icon not found at ' + iconPath);
     return;
   }
-
   trayIcon = new Tray(iconPath);
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow && mainWindow.show() },
-    { label: 'Pause', click: () => mainWindow && mainWindow.webContents.send('pause') },
-    { label: 'Resume', click: () => mainWindow && mainWindow.webContents.send('resume') },
+    { label: 'Fire Now', click: () => {
+        const active = StatusService.getActiveWindow(configManager.load());
+        if (active) scheduler.fireNow(active.anchor);
+    } },
+    { label: 'Pause', click: () => scheduler.setPaused(true) },
+    { label: 'Resume', click: () => scheduler.setPaused(false) },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]);
-
   trayIcon.setContextMenu(contextMenu);
+  trayIcon.setToolTip('Claude Anchors');
   trayIcon.on('click', () => {
     if (mainWindow) mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
   });
 }
+
+app.on('ready', () => {
+  configureAutoStart();
+  createWindow();
+  setupTray();
+  sweepLeftoverTasks();
+  scheduler.start().catch((err) => console.error('Scheduler start error:', err));
+  // Detect window duration in the background; if it changes the config,
+  // recompute so the armed timer reflects the new window boundaries.
+  windowDetector.detect(configManager)
+    .then((changed) => { if (changed) return scheduler.recompute(); })
+    .catch((err) => console.error('WindowDetector error on startup:', err));
+  powerMonitor.on('resume', () => {
+    scheduler.recompute().catch((err) => console.error('Scheduler resume error:', err));
+  });
+});
+
+app.on('window-all-closed', () => { /* stay in tray */ });
+app.on('before-quit', () => {
+  app.quitting = true;
+  scheduler.stop();
+  if (trayIcon) trayIcon.destroy();
+});
