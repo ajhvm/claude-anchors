@@ -37,7 +37,10 @@ class StatusService {
     const windows = StatusService.getWindowTimes(config);
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    const todayStr = now.toISOString().split('T')[0];
+    // Local calendar date — anchor logs are written in local time, so the UTC
+    // date (toISOString) would mismatch in the evening for UTC-negative zones.
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
     return windows.map(win => {
       const windowLogs = (logs || []).filter(log => {
