@@ -19,7 +19,11 @@ class Scheduler {
   static plan(config, logs, now) {
     const windows = StatusService.getWindowTimes(config);
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    const todayStr = now.toISOString().split('T')[0];
+    // Use the LOCAL calendar date — AnchorRunner writes log timestamps in local
+    // time, so comparing against the UTC date (toISOString) would mismatch in the
+    // evening for UTC-negative zones and re-fire anchors every recompute.
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
     const isDone = (anchor, startMin, endMin) =>
       (logs || []).some((l) => {
@@ -111,7 +115,10 @@ class Scheduler {
     if (!nextFireAt) return;
     let delay = nextFireAt.getTime() - this._now().getTime();
     if (delay < 0) delay = 0;
-    this.timer = setTimeout(() => this._onTimer(nextAnchor), delay);
+    this.timer = setTimeout(
+      () => this._onTimer(nextAnchor).catch((err) => console.error('Scheduler timer error:', err)),
+      delay
+    );
   }
 
   async _onTimer(anchor) {

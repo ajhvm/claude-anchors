@@ -42,8 +42,24 @@ function testRollsToTomorrowWhenDone() {
   console.assert(toFire.length === 0, `nothing to fire, got ${JSON.stringify(toFire)}`);
   console.assert(nextAnchor === 'w1', `next w1, got ${nextAnchor}`);
   console.assert(nextFireAt.getDate() === 16, `fires tomorrow (16th), got ${nextFireAt.getDate()}`);
+  console.assert(nextFireAt.getMonth() === 5, `fires in June (month 5), got ${nextFireAt.getMonth()}`);
   console.assert(nextFireAt.getHours() === 5, `fires at 05:00, got ${nextFireAt.getHours()}`);
   console.log('✓ Scheduler.plan rolls-to-tomorrow passed');
+}
+
+// Regression for the local-date fix: a log written earlier the SAME LOCAL day
+// must count as done. The log date is derived from now's local components so
+// the test never false-fails; on UTC-negative machines in the evening it would
+// fail if plan() reverted to the UTC date (toISOString).
+function testUsesLocalDateNotUTC() {
+  const now = new Date(2026, 5, 15, 18, 0, 0); // 18:00 local → inside w3 (15:00-20:00)
+  const p = (n) => String(n).padStart(2, '0');
+  const localDate = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+  const logs = [{ anchor: 'w3', timestamp: `${localDate} 15:30:00`, status: 'ok' }];
+  const { toFire, nextAnchor } = Scheduler.plan(STD, logs, now);
+  console.assert(toFire.length === 0, `same-local-day log → done, got ${JSON.stringify(toFire)}`);
+  console.assert(nextAnchor === 'w4', `next w4, got ${nextAnchor}`);
+  console.log('✓ Scheduler.plan uses-local-date passed');
 }
 
 async function testRecomputeFiresCatchUpAndArms() {
@@ -73,10 +89,13 @@ async function testRecomputePausedDoesNothing() {
   console.log('✓ Scheduler.recompute paused passed');
 }
 
-testNextIsW1WhenBeforeStart();
-testCatchUpActiveWindow();
-testNoCatchUpWhenAlreadyFired();
-testSkippedLogCountsAsDone();
-testRollsToTomorrowWhenDone();
-testRecomputeFiresCatchUpAndArms();
-testRecomputePausedDoesNothing();
+(async () => {
+  testNextIsW1WhenBeforeStart();
+  testCatchUpActiveWindow();
+  testNoCatchUpWhenAlreadyFired();
+  testSkippedLogCountsAsDone();
+  testRollsToTomorrowWhenDone();
+  testUsesLocalDateNotUTC();
+  await testRecomputeFiresCatchUpAndArms();
+  await testRecomputePausedDoesNothing();
+})();
