@@ -29,10 +29,8 @@ function createWindow() {
 
   const config = configManager.load();
 
-  taskManager.cleanupLegacyTasks().catch(err => {
-    console.error('Error cleaning legacy tasks on startup:', err);
-  });
-
+  // updateTasks() sweeps legacy tasks internally before registering, so a
+  // separate cleanupLegacyTasks() call here would race the same unregisters.
   taskManager.updateTasks(config).catch(err => {
     console.error('Error initializing tasks on startup:', err);
   });
