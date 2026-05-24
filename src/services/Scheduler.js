@@ -135,6 +135,23 @@ class Scheduler {
     return res;
   }
 
+  // Persist the pause state and apply it. Used by both the renderer (pause-all/
+  // resume-all) and the tray menu, so pausing survives resume/restart instead of
+  // silently un-pausing on the next recompute.
+  async setPaused(paused) {
+    const config = this.configManager.load();
+    config.isPaused = paused;
+    this.configManager.save(config);
+    if (paused) {
+      this.stop();
+      this.nextFireAt = null;
+      this.nextAnchor = null;
+      this.onUpdate(this.status());
+    } else {
+      await this.recompute();
+    }
+  }
+
   status() {
     return {
       nextFireAt: this.nextFireAt,

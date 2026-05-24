@@ -18,7 +18,7 @@ class WindowDetector {
 
       const prompt = 'How many hours is the context window for my current Claude plan? Reply with only a single integer, nothing else.';
 
-      execFile(claude, ['-p', prompt], { timeout: 30000 }, (err, stdout) => {
+      execFile(claude, ['-p', prompt], { timeout: 30000, windowsHide: true }, (err, stdout) => {
         if (err) {
           console.error('WindowDetector: detection failed:', err.message);
           resolve(false);

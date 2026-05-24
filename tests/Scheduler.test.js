@@ -89,6 +89,28 @@ async function testRecomputePausedDoesNothing() {
   console.log('✓ Scheduler.recompute paused passed');
 }
 
+async function testSetPausedPersistsAndToggles() {
+  const cfg = { startTime: '05:00', windowCount: 4, windowDuration: 5, isPaused: false };
+  let saved = null;
+  const fakeConfig = {
+    load: () => ({ ...cfg }),
+    save: (c) => { saved = c; cfg.isPaused = c.isPaused; return true; }
+  };
+  const fakeRunner = { fire: () => Promise.resolve({ ok: true }) };
+  const fakeLogs = { getAllLogs: () => [] };
+  const s = new Scheduler(fakeConfig, fakeRunner, { logReader: fakeLogs, now: () => new Date(2026, 5, 15, 11, 0, 0) });
+
+  await s.setPaused(true);
+  console.assert(saved && saved.isPaused === true, 'setPaused(true) persists isPaused=true');
+  console.assert(s.timer === null, 'setPaused(true) clears the timer');
+
+  await s.setPaused(false);
+  console.assert(cfg.isPaused === false, 'setPaused(false) persists isPaused=false');
+  console.assert(s.timer !== null, 'setPaused(false) re-arms a timer');
+  s.stop();
+  console.log('✓ Scheduler.setPaused persists + toggles passed');
+}
+
 (async () => {
   testNextIsW1WhenBeforeStart();
   testCatchUpActiveWindow();
@@ -98,4 +120,5 @@ async function testRecomputePausedDoesNothing() {
   testUsesLocalDateNotUTC();
   await testRecomputeFiresCatchUpAndArms();
   await testRecomputePausedDoesNothing();
+  await testSetPausedPersistsAndToggles();
 })();

@@ -56,7 +56,7 @@ function createWindow() {
   // NOTE: intentionally NOT calling mainWindow.show() — launches hidden.
 }
 
-// One-time hidden sweep of leftover app-created tasks (safety net). Runs via
+// Startup hidden sweep of leftover app-created tasks (safety net). Runs via
 // execFile with windowsHide:true → no console window. The redesigned app
 // creates no tasks, so every ClaudeAnchor-* found is stale and removed. The
 // legacy S4U tasks are removed separately by Remove-AnchorTasks.ps1 (elevation).
@@ -116,8 +116,8 @@ ipcMain.handle('fire-anchor', async (event, anchor) => {
 
 ipcMain.handle('detect-window-duration', () => windowDetector.detect(configManager));
 
-ipcMain.on('pause-all', () => { scheduler.stop(); updateTrayStatus(scheduler.status()); });
-ipcMain.on('resume-all', () => { scheduler.recompute(); });
+ipcMain.on('pause-all', () => { scheduler.setPaused(true); });
+ipcMain.on('resume-all', () => { scheduler.setPaused(false); });
 
 ipcMain.handle('apply-config', async () => {
   try { return await scheduler.recompute(); }
@@ -147,8 +147,8 @@ function setupTray() {
         const active = StatusService.getActiveWindow(configManager.load());
         if (active) scheduler.fireNow(active.anchor);
     } },
-    { label: 'Pause', click: () => { scheduler.stop(); updateTrayStatus(scheduler.status()); } },
-    { label: 'Resume', click: () => scheduler.recompute() },
+    { label: 'Pause', click: () => scheduler.setPaused(true) },
+    { label: 'Resume', click: () => scheduler.setPaused(false) },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() }
   ]);
@@ -164,9 +164,12 @@ app.on('ready', () => {
   createWindow();
   setupTray();
   sweepLeftoverTasks();
-  windowDetector.detect(configManager).catch((err) =>
-    console.error('WindowDetector error on startup:', err));
   scheduler.start().catch((err) => console.error('Scheduler start error:', err));
+  // Detect window duration in the background; if it changes the config,
+  // recompute so the armed timer reflects the new window boundaries.
+  windowDetector.detect(configManager)
+    .then((changed) => { if (changed) return scheduler.recompute(); })
+    .catch((err) => console.error('WindowDetector error on startup:', err));
   powerMonitor.on('resume', () => {
     scheduler.recompute().catch((err) => console.error('Scheduler resume error:', err));
   });
