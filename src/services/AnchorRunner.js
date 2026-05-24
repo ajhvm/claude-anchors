@@ -10,9 +10,11 @@ class AnchorRunner {
   }
 
   _claudePath() {
-    return os.platform() === 'win32'
-      ? path.join(process.env.APPDATA, 'npm', 'claude.cmd')
-      : 'claude';
+    if (os.platform() === 'win32') {
+      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      return path.join(appData, 'npm', 'claude.cmd');
+    }
+    return 'claude';
   }
 
   _timestamp(d = new Date()) {
@@ -40,14 +42,25 @@ class AnchorRunner {
         ['-p', config.prompt],
         { timeout: 60000, windowsHide: true },
         (err, stdout) => {
-          if (err) {
-            this._appendLog(anchor, `ERROR: ${err.message}`);
+          // execFile delivers this callback asynchronously, so any throw here
+          // (e.g. a log-write failure) would otherwise become an uncaught
+          // exception that crashes the Electron main process. Guard it.
+          try {
+            if (err) {
+              this._appendLog(anchor, `ERROR: ${err.message}`);
+              resolve({ ok: false, reply: '' });
+              return;
+            }
+            const reply = (stdout || '').trim();
+            this._appendLog(anchor, reply || 'ERROR: empty response');
+            // ok = claude produced any non-empty output. Note the asymmetry:
+            // LogReader records status 'ok' only when the reply is exactly "OK"
+            // (the configured prompt asks for that); other replies log 'pending'.
+            resolve({ ok: reply.length > 0, reply });
+          } catch (writeErr) {
+            console.error(`AnchorRunner: failed to record fire for ${anchor}: ${writeErr.message}`);
             resolve({ ok: false, reply: '' });
-            return;
           }
-          const reply = (stdout || '').trim();
-          this._appendLog(anchor, reply || 'ERROR: empty response');
-          resolve({ ok: reply.length > 0, reply });
         }
       );
     });
