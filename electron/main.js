@@ -3,11 +3,13 @@ const path = require('path');
 const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
 const TaskManager = require(path.join(__dirname, '../src/services/TaskManager'));
 const LogReader = require(path.join(__dirname, '../src/services/LogReader'));
+const WindowDetector = require(path.join(__dirname, '../src/services/WindowDetector'));
 
 let mainWindow;
 let trayIcon;
 const configManager = new ConfigManager();
 const taskManager = new TaskManager();
+const windowDetector = new WindowDetector();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -25,16 +27,21 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../src/index.html'));
 
-  // Initialize tasks based on saved config
   const config = configManager.load();
+
+  taskManager.cleanupLegacyTasks().catch(err => {
+    console.error('Error cleaning legacy tasks on startup:', err);
+  });
+
   taskManager.updateTasks(config).catch(err => {
     console.error('Error initializing tasks on startup:', err);
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+  windowDetector.detect(configManager).catch(err => {
+    console.error('WindowDetector error on startup:', err);
   });
 
+  mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.on('close', (e) => {
     if (app.quitting) return;
     e.preventDefault();
@@ -85,22 +92,21 @@ ipcMain.handle('get-logs', () => {
   }
 });
 
-ipcMain.handle('fire-anchor', (event, anchor, prompt) => {
+ipcMain.handle('fire-anchor', (event, anchor, scheduledTime) => {
   try {
-    return taskManager.fireAnchor(anchor, prompt);
+    return taskManager.fireAnchor(anchor, scheduledTime);
   } catch (err) {
     console.error('IPC error firing anchor:', err);
     return false;
   }
 });
 
-ipcMain.on('pause-all', () => {
-  taskManager.pauseAll();
+ipcMain.handle('detect-window-duration', () => {
+  return windowDetector.detect(configManager);
 });
 
-ipcMain.on('resume-all', () => {
-  taskManager.resumeAll();
-});
+ipcMain.on('pause-all', () => { taskManager.pauseAll(); });
+ipcMain.on('resume-all', () => { taskManager.resumeAll(); });
 
 ipcMain.handle('apply-config', (event, config) => {
   try {
@@ -129,15 +135,12 @@ function setupTray() {
   const fs = require('fs');
 
   const iconPath = path.join(__dirname, '../assets/icon.png');
-
-  // Only create tray if icon exists; gracefully handle missing icon
   if (!fs.existsSync(iconPath)) {
     console.warn('Tray icon not found at ' + iconPath);
     return;
   }
 
   trayIcon = new Tray(iconPath);
-
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow && mainWindow.show() },
     { label: 'Pause', click: () => mainWindow && mainWindow.webContents.send('pause') },
@@ -148,8 +151,6 @@ function setupTray() {
 
   trayIcon.setContextMenu(contextMenu);
   trayIcon.on('click', () => {
-    if (mainWindow) {
-      mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
-    }
+    if (mainWindow) mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
   });
 }
