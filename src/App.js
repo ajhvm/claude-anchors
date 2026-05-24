@@ -10,19 +10,15 @@ class App {
     this.setupEventListeners();
     await this.loadConfig();
 
-    // Apply config to system tasks on first load
     try {
       await window.api.invoke('apply-config', this.config);
     } catch (err) {
       console.error('Error applying config on init:', err);
     }
 
-    const statusService = new StatusService(this.config);
-    statusService.startCountdownUpdates(() => {
-      const countdown = statusService.getCountdown();
-      const display = document.getElementById('countdown-display');
-      if (display) display.textContent = countdown;
-    });
+    setInterval(() => {
+      if (this.currentView === 'status') this.loadStatusData();
+    }, 60000);
   }
 
   render() {
@@ -63,29 +59,50 @@ class App {
   }
 
   renderStatusView() {
-    if (!this.config || !this.config.schedule) {
+    if (!this.config || !this.config.startTime) {
       return `<h2>Status</h2><p style="color:#999;">Loading...</p>`;
     }
-    const statusService = new StatusService(this.config);
-    const currentWindow = statusService.getCurrentWindow();
-    const countdown = statusService.getCountdown();
-
+    setTimeout(() => this.loadStatusData(), 0);
     return `
       <h2>Status</h2>
-      <div class="subtitle">Current window and next anchor</div>
-      <div class="status-box">
-        <div class="status-label">CURRENT WINDOW</div>
-        <div class="status-value">${currentWindow.window}</div>
+      <div class="subtitle">Today's windows</div>
+      <div id="window-states" style="margin:16px 0;">Loading...</div>
+      <div style="margin-top:16px;">
+        <button id="fire-now-btn" onclick="app.fireNow()">Fire Now</button>
+        <button onclick="app.togglePause()" style="margin-left:8px;">
+          ${this.config.isPaused ? 'Resume' : 'Pause'}
+        </button>
       </div>
-      <div class="status-box">
-        <div class="status-label">Next anchor fires in</div>
-        <div class="status-value" id="countdown-display">${countdown}</div>
-      </div>
-      <button onclick="app.fireNow()">Fire Now</button>
-      <button onclick="app.togglePause()" style="margin-left: 8px;">
-        ${this.config.isPaused ? 'Resume' : 'Pause'}
-      </button>
     `;
+  }
+
+  async loadStatusData() {
+    const el = document.getElementById('window-states');
+    if (!el) return;
+    try {
+      const logs = await window.api.invoke('get-logs');
+      const states = StatusService.getWindowStates(this.config, logs);
+      el.innerHTML = this.renderWindowStates(states);
+    } catch (err) {
+      el.innerHTML = `<p style="color:#dc2626;">Error loading status: ${err.message}</p>`;
+    }
+  }
+
+  renderWindowStates(states) {
+    const icons = { started: '✓', active: '●', skipped: '⊘', pending: '○', expired: '—' };
+    const colors = { started: '#16a34a', active: '#2563eb', skipped: '#9ca3af', pending: '#9ca3af', expired: '#d1d5db' };
+    let html = '<table style="width:100%;border-collapse:collapse;">';
+    states.forEach(win => {
+      const icon = icons[win.state] || '?';
+      const color = colors[win.state] || '#000';
+      html += `<tr style="border-bottom:1px solid #f0f0f0;">
+        <td style="padding:10px 8px;color:#6b7280;font-size:13px;">${win.label}</td>
+        <td style="padding:10px 8px;font-size:12px;color:#9ca3af;">${win.startStr} – ${win.endStr}</td>
+        <td style="padding:10px 8px;font-weight:bold;color:${color};">${icon} ${win.detail}</td>
+      </tr>`;
+    });
+    html += '</table>';
+    return html;
   }
 
   renderSettingsView() {
@@ -258,17 +275,15 @@ class App {
   }
 
   async fireNow() {
-    const statusService = new StatusService(this.config);
-    const next = statusService.getNextAnchor();
-    if (!next) {
-      alert('No more anchors today');
+    const active = StatusService.getActiveWindow(this.config);
+    if (!active) {
+      alert('No active window right now');
       return;
     }
-
-    const prompt = this.config.prompts[next.anchor];
-    alert(`Firing ${next.anchor}...`);
-    await window.api.invoke('fire-anchor', next.anchor, prompt);
+    alert(`Firing ${active.label}...`);
+    await window.api.invoke('fire-anchor', active.anchor, active.startHHMM);
     alert('Anchor fired!');
+    await this.loadStatusData();
   }
 
   async togglePause() {
