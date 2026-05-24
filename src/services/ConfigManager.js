@@ -11,78 +11,56 @@ class ConfigManager {
 
     this.ensureDirectories();
     this.defaultConfig = {
-      version: 1,
+      version: 2,
       timezone: 'America/Los_Angeles',
-      smartAdjustment: true,
+      startTime: '05:00',
+      windowCount: 4,
+      windowDuration: 5,
+      windowDurationSource: 'auto',
       isPaused: false,
-      schedule: {
-        monday: {
-          w1Primary: '04:55',
-          w1Backup: '05:10',
-          w2Primary: '10:02',
-          w2Backup: '10:15',
-          w3Primary: '15:05',
-          w3Backup: '15:20',
-          w4Primary: '20:10',
-          w4Backup: '20:25'
-        },
-        tuesday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        },
-        wednesday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        },
-        thursday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        },
-        friday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        },
-        saturday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        },
-        sunday: {
-          w1Primary: '04:55', w1Backup: '05:10', w2Primary: '10:02', w2Backup: '10:15',
-          w3Primary: '15:05', w3Backup: '15:20', w4Primary: '20:10', w4Backup: '20:25'
-        }
-      },
-      prompts: {
-        w1Primary: 'Window 1 open — 5am block. Reply OK only.',
-        w1Backup: 'Window 1 backup — 5am block. Reply OK only.',
-        w2Primary: 'Window 2 open — 10am block. Reply OK only.',
-        w2Backup: 'Window 2 backup — 10am block. Reply OK only.',
-        w3Primary: 'Window 3 open — 3pm block. Reply OK only.',
-        w3Backup: 'Window 3 backup — 3pm block. Reply OK only.',
-        w4Primary: 'Window 4 open — 8pm block. Reply OK only.',
-        w4Backup: 'Window 4 backup — 8pm block. Reply OK only.'
-      }
+      prompt: 'New context window open. Reply OK only.'
     };
   }
 
   ensureDirectories() {
-    if (!fs.existsSync(this.configDir)) {
-      fs.mkdirSync(this.configDir, { recursive: true });
-    }
-    if (!fs.existsSync(this.logsDir)) {
-      fs.mkdirSync(this.logsDir, { recursive: true });
-    }
+    if (!fs.existsSync(this.configDir)) fs.mkdirSync(this.configDir, { recursive: true });
+    if (!fs.existsSync(this.logsDir)) fs.mkdirSync(this.logsDir, { recursive: true });
+  }
+
+  migrateV1toV2(v1Config) {
+    const startTime =
+      (v1Config.schedule && v1Config.schedule.monday && v1Config.schedule.monday.w1Primary) ||
+      '05:00';
+    const prompt =
+      (v1Config.prompts && v1Config.prompts.w1Primary) ||
+      'New context window open. Reply OK only.';
+    return {
+      version: 2,
+      timezone: v1Config.timezone || 'America/Los_Angeles',
+      startTime,
+      windowCount: 4,
+      windowDuration: 5,
+      windowDurationSource: 'auto',
+      isPaused: Boolean(v1Config.isPaused),
+      prompt
+    };
   }
 
   load() {
     try {
       if (fs.existsSync(this.configFile)) {
-        const data = fs.readFileSync(this.configFile, 'utf-8');
-        return JSON.parse(data);
+        const config = JSON.parse(fs.readFileSync(this.configFile, 'utf-8'));
+        if (!config.version || config.version < 2) {
+          const migrated = this.migrateV1toV2(config);
+          this.save(migrated);
+          return migrated;
+        }
+        return config;
       }
     } catch (err) {
       console.error('Error loading config:', err);
     }
-    return this.defaultConfig;
+    return { ...this.defaultConfig };
   }
 
   save(config) {
@@ -95,24 +73,17 @@ class ConfigManager {
     }
   }
 
-  getLogsDir() {
-    return this.logsDir;
-  }
-
-  getConfigDir() {
-    return this.configDir;
-  }
+  getLogsDir() { return this.logsDir; }
+  getConfigDir() { return this.configDir; }
 
   loadState() {
     try {
-      if (fs.existsSync(this.stateFile)) {
-        const data = fs.readFileSync(this.stateFile, 'utf-8');
-        return JSON.parse(data);
-      }
+      if (fs.existsSync(this.stateFile))
+        return JSON.parse(fs.readFileSync(this.stateFile, 'utf-8'));
     } catch (err) {
       console.error('Error loading state:', err);
     }
-    return { date: new Date().toISOString().split('T')[0], windowStartTime: null, shifted: false };
+    return { date: new Date().toISOString().split('T')[0], windowStartTime: null };
   }
 
   saveState(state) {

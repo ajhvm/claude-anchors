@@ -5,3 +5,9 @@ dist/
 ~/.claude-anchors/
 out/
 logs/
+
+# Superpowers runtime scratch
+.superpowers/
+
+# Removed worktree (consolidated into root)
+.claude/worktrees/
