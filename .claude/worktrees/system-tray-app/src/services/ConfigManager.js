@@ -34,25 +34,27 @@ class ConfigManager {
     const prompt =
       (v1Config.prompts && v1Config.prompts.w1Primary) ||
       'New context window open. Reply OK only.';
-    const v2Config = {
+    return {
       version: 2,
       timezone: v1Config.timezone || 'America/Los_Angeles',
       startTime,
       windowCount: 4,
       windowDuration: 5,
       windowDurationSource: 'auto',
-      isPaused: v1Config.isPaused || false,
+      isPaused: Boolean(v1Config.isPaused),
       prompt
     };
-    this.save(v2Config);
-    return v2Config;
   }
 
   load() {
     try {
       if (fs.existsSync(this.configFile)) {
         const config = JSON.parse(fs.readFileSync(this.configFile, 'utf-8'));
-        if (!config.version || config.version < 2) return this.migrateV1toV2(config);
+        if (!config.version || config.version < 2) {
+          const migrated = this.migrateV1toV2(config);
+          this.save(migrated);
+          return migrated;
+        }
         return config;
       }
     } catch (err) {
