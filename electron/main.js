@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, ipcMain, powerMonitor } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, powerMonitor } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const ConfigManager = require(path.join(__dirname, '../src/services/ConfigManager'));
@@ -56,14 +57,14 @@ function createWindow() {
 }
 
 // One-time hidden sweep of leftover app-created tasks (safety net). Runs via
-// execFile with windowsHide:true → no console window. The legacy S4U tasks are
-// removed separately by Remove-AnchorTasks.ps1 (needs elevation).
+// execFile with windowsHide:true → no console window. The redesigned app
+// creates no tasks, so every ClaudeAnchor-* found is stale and removed. The
+// legacy S4U tasks are removed separately by Remove-AnchorTasks.ps1 (elevation).
 function sweepLeftoverTasks() {
   if (process.platform !== 'win32') return;
-  const psScript = [
-    "$valid=@('ClaudeAnchor-w1','ClaudeAnchor-w2','ClaudeAnchor-w3','ClaudeAnchor-w4')",
-    "Get-ScheduledTask | Where-Object { $_.TaskName -like 'ClaudeAnchor-*' } | ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue }"
-  ].join('; ');
+  const psScript =
+    "Get-ScheduledTask | Where-Object { $_.TaskName -like 'ClaudeAnchor-*' } | " +
+    "ForEach-Object { Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue }";
   execFile('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', psScript],
     { windowsHide: true }, (err) => {
       if (err) console.error('sweepLeftoverTasks error:', err.message);
@@ -108,8 +109,8 @@ ipcMain.handle('get-logs', () => {
 
 // Manual "Fire Now" from the renderer. scheduledTime arg kept for the existing
 // App.js call signature but is unused (Scheduler tracks timing).
-ipcMain.handle('fire-anchor', (event, anchor) => {
-  try { return scheduler.fireNow(anchor); }
+ipcMain.handle('fire-anchor', async (event, anchor) => {
+  try { return await scheduler.fireNow(anchor); }
   catch (err) { console.error('IPC fire-anchor:', err); return false; }
 });
 
@@ -118,8 +119,8 @@ ipcMain.handle('detect-window-duration', () => windowDetector.detect(configManag
 ipcMain.on('pause-all', () => { scheduler.stop(); updateTrayStatus(scheduler.status()); });
 ipcMain.on('resume-all', () => { scheduler.recompute(); });
 
-ipcMain.handle('apply-config', () => {
-  try { return scheduler.recompute(); }
+ipcMain.handle('apply-config', async () => {
+  try { return await scheduler.recompute(); }
   catch (err) { console.error('IPC apply-config:', err); return false; }
 });
 
@@ -134,8 +135,6 @@ function configureAutoStart() {
 }
 
 function setupTray() {
-  const { Tray } = require('electron');
-  const fs = require('fs');
   const iconPath = path.join(__dirname, '../assets/icon.png');
   if (!fs.existsSync(iconPath)) {
     console.warn('Tray icon not found at ' + iconPath);
@@ -174,4 +173,8 @@ app.on('ready', () => {
 });
 
 app.on('window-all-closed', () => { /* stay in tray */ });
-app.on('before-quit', () => { app.quitting = true; });
+app.on('before-quit', () => {
+  app.quitting = true;
+  scheduler.stop();
+  if (trayIcon) trayIcon.destroy();
+});
