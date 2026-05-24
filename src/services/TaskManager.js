@@ -17,8 +17,8 @@ class TaskManager {
       const scriptPath = path.join(scriptDir, scriptName);
 
       if (this.isWindows) {
-        const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -anchor "${anchor}" -prompt "${prompt}"`;
-        const child = spawn('cmd.exe', ['/c', cmd], { shell: true });
+        const cmd = `powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}" -anchor "${anchor}" -prompt "${prompt}"`;
+        const child = spawn('cmd.exe', ['/c', cmd], { shell: true, windowsHide: true });
         child.on('close', () => resolve(true));
       } else {
         const child = spawn('bash', [scriptPath, anchor, prompt]);
@@ -41,7 +41,7 @@ class TaskManager {
 
     const psScript = [
       `$trigger = New-ScheduledTaskTrigger -Daily -At '${hour}:${minute < 10 ? '0' + minute : minute}'`,
-      `$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File \\"${scriptPath.replace(/\\/g, '\\\\')}\\" -anchor ${anchor}'`,
+      `$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"${scriptPath.replace(/\\/g, '\\\\')}\\" -anchor ${anchor}'`,
       `$settings = New-ScheduledTaskSettingsSet -WakeToRun -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)`,
       `Register-ScheduledTask -TaskName '${taskName}' -Trigger $trigger -Action $action -Settings $settings -Force`
     ].join('; ');
