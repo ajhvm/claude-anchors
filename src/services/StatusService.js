@@ -1,94 +1,108 @@
 class StatusService {
-  constructor(config) {
-    this.config = config;
-    this.updateInterval = null;
-  }
+  static getWindowTimes(config) {
+    const [startH, startM] = config.startTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const durationMinutes = config.windowDuration * 60;
+    const windows = [];
 
-  getCurrentWindow() {
-    const now = new Date();
-    const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][now.getDay()];
-    const todaySchedule = this.config.schedule[dayName];
+    for (let i = 0; i < config.windowCount; i++) {
+      const winStart = startMinutes + i * durationMinutes;
+      const winEnd = winStart + durationMinutes;
+      const sh = Math.floor(winStart / 60) % 24;
+      const sm = winStart % 60;
+      const eh = Math.floor(winEnd / 60) % 24;
+      const em = winEnd % 60;
 
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const currentTime = hours * 60 + minutes;
+      const fmt12 = (h, m) => {
+        const period = h < 12 ? 'am' : 'pm';
+        const h12 = h % 12 || 12;
+        return `${h12}:${String(m).padStart(2, '0')}${period}`;
+      };
 
-    // Parse schedule times and find current window
-    const times = [];
-    Object.entries(todaySchedule).forEach(([anchor, timeStr]) => {
-      const [h, m] = timeStr.split(':').map(Number);
-      times.push({ anchor, timeStr, minutes: h * 60 + m });
-    });
-    times.sort((a, b) => a.minutes - b.minutes);
-
-    for (let i = 0; i < times.length; i++) {
-      if (currentTime < times[i].minutes) {
-        return { window: this.getWindowName(times[i].anchor), time: times[i].timeStr };
-      }
+      windows.push({
+        anchor: `w${i + 1}`,
+        label: `Window ${i + 1}`,
+        startMinutes: winStart,
+        endMinutes: winEnd,
+        startHHMM: `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`,
+        startStr: fmt12(sh, sm),
+        endStr: fmt12(eh, em)
+      });
     }
 
-    return { window: times[times.length - 1].anchor, time: times[times.length - 1].timeStr };
+    return windows;
   }
 
-  getWindowName(anchor) {
-    const map = {
-      w1Primary: 'Window 1: 5am – 10am',
-      w1Backup: 'Window 1: 5am – 10am',
-      w2Primary: 'Window 2: 10am – 3pm',
-      w2Backup: 'Window 2: 10am – 3pm',
-      w3Primary: 'Window 3: 3pm – 8pm',
-      w3Backup: 'Window 3: 3pm – 8pm',
-      w4Primary: 'Window 4: 8pm – 1am',
-      w4Backup: 'Window 4: 8pm – 1am'
-    };
-    return map[anchor] || anchor;
-  }
-
-  getNextAnchor() {
+  static getWindowStates(config, logs) {
+    const windows = StatusService.getWindowTimes(config);
     const now = new Date();
-    const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][now.getDay()];
-    const todaySchedule = this.config.schedule[dayName];
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const todayStr = now.toISOString().split('T')[0];
 
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const times = [];
+    return windows.map(win => {
+      const windowLogs = (logs || []).filter(log => {
+        if (log.anchor !== win.anchor) return false;
+        if (!log.timestamp.startsWith(todayStr)) return false;
+        const timePart = log.timestamp.split(' ')[1];
+        if (!timePart) return false;
+        const [lh, lm] = timePart.split(':').map(Number);
+        const logMinutes = lh * 60 + lm;
+        return logMinutes >= win.startMinutes && logMinutes < win.endMinutes;
+      });
 
-    Object.entries(todaySchedule).forEach(([anchor, timeStr]) => {
-      const [h, m] = timeStr.split(':').map(Number);
-      times.push({ anchor, timeStr, minutes: h * 60 + m });
-    });
-    times.sort((a, b) => a.minutes - b.minutes);
+      const startedLog = windowLogs.find(l => l.status === 'ok');
+      const hasSkipped = windowLogs.some(l => l.status === 'skipped');
 
-    for (let t of times) {
-      if (t.minutes > currentMinutes) {
-        return { anchor: t.anchor, time: t.timeStr, minutes: t.minutes };
+      let state, detail;
+
+      if (startedLog) {
+        const timePart = startedLog.timestamp.split(' ')[1].slice(0, 5);
+        const [h, m] = timePart.split(':').map(Number);
+        const period = h < 12 ? 'am' : 'pm';
+        const h12 = h % 12 || 12;
+        state = 'started';
+        detail = `Started ${h12}:${String(m).padStart(2, '0')}${period}`;
+      } else if (hasSkipped) {
+        state = 'skipped';
+        detail = 'Skipped';
+      } else if (nowMinutes >= win.startMinutes && nowMinutes < win.endMinutes) {
+        const remaining = win.endMinutes - nowMinutes;
+        const rh = Math.floor(remaining / 60);
+        const rm = remaining % 60;
+        state = 'active';
+        detail = rh > 0 ? `Active — ${rh}h ${rm}m remaining` : `Active — ${rm}m remaining`;
+      } else if (win.startMinutes > nowMinutes) {
+        const minsUntil = win.startMinutes - nowMinutes;
+        const uh = Math.floor(minsUntil / 60);
+        const um = minsUntil % 60;
+        state = 'pending';
+        detail = uh > 0 ? `Pending — fires in ${uh}h ${um}m` : `Pending — fires in ${um}m`;
+      } else {
+        state = 'expired';
+        detail = 'Expired';
       }
-    }
 
-    return null; // No more anchors today
+      return { ...win, state, detail };
+    });
   }
 
-  getCountdown() {
-    const next = this.getNextAnchor();
+  static getCountdown(config) {
+    const windows = StatusService.getWindowTimes(config);
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const next = windows.find(w => w.startMinutes > nowMinutes);
     if (!next) return 'Done for today';
-
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const diff = next.minutes - currentMinutes;
-
+    const diff = next.startMinutes - nowMinutes;
     const hours = Math.floor(diff / 60);
     const mins = diff % 60;
-    return `${hours}h ${mins}m`;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   }
 
-  startCountdownUpdates(callback) {
-    callback();
-    this.updateInterval = setInterval(() => {
-      callback();
-    }, 60000); // Update every minute
-  }
-
-  stopCountdownUpdates() {
-    if (this.updateInterval) clearInterval(this.updateInterval);
+  static getActiveWindow(config) {
+    const windows = StatusService.getWindowTimes(config);
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    return windows.find(w => nowMinutes >= w.startMinutes && nowMinutes < w.endMinutes) || null;
   }
 }
 

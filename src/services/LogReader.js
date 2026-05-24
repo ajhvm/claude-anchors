@@ -47,6 +47,8 @@ class LogReader {
         };
       } else if (line.trim() === 'OK') {
         if (currentEntry) currentEntry.status = 'ok';
+      } else if (line.trim().startsWith('SKIPPED')) {
+        if (currentEntry) currentEntry.status = 'skipped';
       } else if (line.trim().startsWith('ERROR')) {
         if (currentEntry) currentEntry.status = 'error';
       } else if (currentEntry && line.trim()) {
