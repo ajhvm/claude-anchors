@@ -1,27 +1,44 @@
 const path = require('path');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
-const ConfigManager = require('./ConfigManager');
 
 class TaskManager {
   constructor() {
-    this.platform = os.platform(); // 'win32', 'darwin', 'linux'
+    this.platform = os.platform();
     this.isWindows = this.platform === 'win32';
-    this.configManager = new ConfigManager();
   }
 
-  async fireAnchor(anchor, prompt) {
+  computeWindowTimes(config) {
+    const [startH, startM] = config.startTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const durationMinutes = config.windowDuration * 60;
+    const windows = [];
+
+    for (let i = 0; i < config.windowCount; i++) {
+      const total = startMinutes + i * durationMinutes;
+      const h = Math.floor(total / 60) % 24;
+      const m = total % 60;
+      windows.push({
+        anchor: `w${i + 1}`,
+        timeStr: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+      });
+    }
+
+    return windows;
+  }
+
+  async fireAnchor(anchor, scheduledTime) {
     return new Promise((resolve) => {
       const scriptDir = path.join(__dirname, '../../scripts');
       const scriptName = this.isWindows ? 'anchor-runner.ps1' : 'anchor-runner.sh';
       const scriptPath = path.join(scriptDir, scriptName);
 
       if (this.isWindows) {
-        const cmd = `powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}" -anchor "${anchor}" -prompt "${prompt}"`;
+        const cmd = `powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${scriptPath}" -anchor "${anchor}" -scheduledTime "${scheduledTime}"`;
         const child = spawn('cmd.exe', ['/c', cmd], { shell: true, windowsHide: true });
         child.on('close', () => resolve(true));
       } else {
-        const child = spawn('bash', [scriptPath, anchor, prompt]);
+        const child = spawn('bash', [scriptPath, anchor, scheduledTime]);
         child.on('close', () => resolve(true));
       }
     });
@@ -33,16 +50,17 @@ class TaskManager {
     const taskName = `ClaudeAnchor-${anchor}`;
     const [hour, minute] = timeStr.split(':').map(n => parseInt(n, 10));
 
-    // Validate timeStr
     if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
       console.error(`Invalid timeStr for ${anchor}: ${timeStr}`);
       return false;
     }
 
+    const minutePad = String(minute).padStart(2, '0');
+    const escapedPath = scriptPath.replace(/\\/g, '\\\\');
     const psScript = [
-      `$trigger = New-ScheduledTaskTrigger -Daily -At '${hour}:${minute < 10 ? '0' + minute : minute}'`,
-      `$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"${scriptPath.replace(/\\/g, '\\\\')}\\" -anchor ${anchor}'`,
-      `$settings = New-ScheduledTaskSettingsSet -WakeToRun -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)`,
+      `$trigger = New-ScheduledTaskTrigger -Daily -At '${hour}:${minutePad}'`,
+      `$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"${escapedPath}\\" -anchor ${anchor} -scheduledTime ${timeStr}'`,
+      `$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -MultipleInstances IgnoreNew -RestartCount 0`,
       `Register-ScheduledTask -TaskName '${taskName}' -Trigger $trigger -Action $action -Settings $settings -Force`
     ].join('; ');
 
@@ -54,35 +72,42 @@ class TaskManager {
     });
   }
 
-  async updateTasksWindows(config) {
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-    const days = Object.keys(config.schedule);
+  async cleanupLegacyTasksWindows() {
+    const psScript = [
+      `$tasks = Get-ScheduledTask | Where-Object { $_.TaskName -like 'ClaudeAnchor-*' }`,
+      `$valid = @('ClaudeAnchor-w1','ClaudeAnchor-w2','ClaudeAnchor-w3','ClaudeAnchor-w4')`,
+      `foreach ($task in $tasks) { if ($valid -notcontains $task.TaskName) { Unregister-ScheduledTask -TaskName $task.TaskName -Confirm:$false } }`
+    ].join('; ');
 
-    // Use monday's schedule as the base (Task Scheduler creates daily tasks, not per-day-of-week)
-    const baseDay = days[0];
-    for (const anchor of anchors) {
-      const timeStr = config.schedule[baseDay][anchor];
-      await this.registerTaskWindows(anchor, timeStr);
+    return new Promise((resolve) => {
+      execFile('powershell.exe', ['-NoProfile', '-Command', psScript], (err) => {
+        if (err) console.error('Error cleaning legacy tasks:', err.message);
+        resolve(!err);
+      });
+    });
+  }
+
+  async updateTasksWindows(config) {
+    await this.cleanupLegacyTasksWindows();
+    const windows = this.computeWindowTimes(config);
+    for (const win of windows) {
+      await this.registerTaskWindows(win.anchor, win.timeStr);
     }
   }
 
   async pauseAllWindows() {
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-
-    for (const anchor of anchors) {
-      const taskName = `ClaudeAnchor-${anchor}`;
-      execFile('powershell.exe', ['-NoProfile', '-Command', `Disable-ScheduledTask -TaskName '${taskName}'`], (err) => {
+    const taskNames = ['ClaudeAnchor-w1', 'ClaudeAnchor-w2', 'ClaudeAnchor-w3', 'ClaudeAnchor-w4'];
+    for (const taskName of taskNames) {
+      execFile('powershell.exe', ['-NoProfile', '-Command', `Disable-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue`], (err) => {
         if (err) console.error(`Error disabling ${taskName}:`, err.message);
       });
     }
   }
 
   async resumeAllWindows() {
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-
-    for (const anchor of anchors) {
-      const taskName = `ClaudeAnchor-${anchor}`;
-      execFile('powershell.exe', ['-NoProfile', '-Command', `Enable-ScheduledTask -TaskName '${taskName}'`], (err) => {
+    const taskNames = ['ClaudeAnchor-w1', 'ClaudeAnchor-w2', 'ClaudeAnchor-w3', 'ClaudeAnchor-w4'];
+    for (const taskName of taskNames) {
+      execFile('powershell.exe', ['-NoProfile', '-Command', `Enable-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue`], (err) => {
         if (err) console.error(`Error enabling ${taskName}:`, err.message);
       });
     }
@@ -98,11 +123,12 @@ class TaskManager {
       return false;
     }
 
+    const fs = require('fs');
     const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
-    const scriptDir = path.join(__dirname, '../../scripts');
-    const scriptPath = path.join(scriptDir, 'anchor-runner.sh');
+    const scriptPath = path.join(__dirname, '../../scripts/anchor-runner.sh');
     const plistName = `com.claudeanchors.${anchor}.plist`;
     const plistPath = path.join(launchAgentsDir, plistName);
+    const logFile = path.join(os.homedir(), '.claude-anchors', 'logs', `${anchor}.log`);
 
     const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -115,6 +141,7 @@ class TaskManager {
     <string>/bin/bash</string>
     <string>${scriptPath}</string>
     <string>${anchor}</string>
+    <string>${timeStr}</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -126,17 +153,14 @@ class TaskManager {
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>${path.join(os.homedir(), '.claude-anchors', 'logs', anchor + '.log')}</string>
+  <string>${logFile}</string>
   <key>StandardErrorPath</key>
-  <string>${path.join(os.homedir(), '.claude-anchors', 'logs', anchor + '.log')}</string>
+  <string>${logFile}</string>
 </dict>
 </plist>`;
 
     try {
-      const fs = require('fs');
-      if (!fs.existsSync(launchAgentsDir)) {
-        fs.mkdirSync(launchAgentsDir, { recursive: true });
-      }
+      if (!fs.existsSync(launchAgentsDir)) fs.mkdirSync(launchAgentsDir, { recursive: true });
       fs.writeFileSync(plistPath, plistContent, 'utf-8');
     } catch (err) {
       console.error(`Error writing plist for ${anchor}:`, err.message);
@@ -144,7 +168,6 @@ class TaskManager {
     }
 
     return new Promise((resolve) => {
-      // Unload first in case it's already loaded, then load the new one
       execFile('launchctl', ['unload', plistPath], () => {
         execFile('launchctl', ['load', plistPath], (err) => {
           if (err) console.error(`Error loading ${plistName}:`, err.message);
@@ -154,21 +177,45 @@ class TaskManager {
     });
   }
 
-  async updateTasksMacOS(config) {
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-    const baseDay = 'monday';
+  async cleanupLegacyTasksMacOS() {
+    const fs = require('fs');
+    const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+    const validFiles = new Set([
+      'com.claudeanchors.w1.plist', 'com.claudeanchors.w2.plist',
+      'com.claudeanchors.w3.plist', 'com.claudeanchors.w4.plist'
+    ]);
 
-    for (const anchor of anchors) {
-      const timeStr = config.schedule[baseDay][anchor];
-      await this.registerTaskMacOS(anchor, timeStr);
+    try {
+      if (!fs.existsSync(launchAgentsDir)) return;
+      const files = fs.readdirSync(launchAgentsDir);
+      for (const file of files) {
+        if (!file.startsWith('com.claudeanchors.')) continue;
+        if (validFiles.has(file)) continue;
+        const plistPath = path.join(launchAgentsDir, file);
+        await new Promise((resolve) => {
+          execFile('launchctl', ['unload', plistPath], () => {
+            try { fs.unlinkSync(plistPath); } catch {}
+            resolve();
+          });
+        });
+        console.log(`Removed legacy task: ${file}`);
+      }
+    } catch (err) {
+      console.error('Error cleaning up legacy macOS tasks:', err.message);
+    }
+  }
+
+  async updateTasksMacOS(config) {
+    await this.cleanupLegacyTasksMacOS();
+    const windows = this.computeWindowTimes(config);
+    for (const win of windows) {
+      await this.registerTaskMacOS(win.anchor, win.timeStr);
     }
   }
 
   async pauseAllMacOS() {
     const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-
-    for (const anchor of anchors) {
+    for (const anchor of ['w1', 'w2', 'w3', 'w4']) {
       const plistPath = path.join(launchAgentsDir, `com.claudeanchors.${anchor}.plist`);
       execFile('launchctl', ['unload', plistPath], (err) => {
         if (err) console.error(`Error unloading ${anchor}:`, err.message);
@@ -178,9 +225,7 @@ class TaskManager {
 
   async resumeAllMacOS() {
     const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-
-    for (const anchor of anchors) {
+    for (const anchor of ['w1', 'w2', 'w3', 'w4']) {
       const plistPath = path.join(launchAgentsDir, `com.claudeanchors.${anchor}.plist`);
       execFile('launchctl', ['load', plistPath], (err) => {
         if (err) console.error(`Error loading ${anchor}:`, err.message);
@@ -188,36 +233,24 @@ class TaskManager {
     }
   }
 
-  async registerTask(anchor, timeStr) {
-    if (this.isWindows) {
-      return this.registerTaskWindows(anchor, timeStr);
-    } else if (this.platform === 'darwin') {
-      return this.registerTaskMacOS(anchor, timeStr);
-    }
-  }
-
   async updateTasks(config) {
-    if (this.isWindows) {
-      return this.updateTasksWindows(config);
-    } else if (this.platform === 'darwin') {
-      return this.updateTasksMacOS(config);
-    }
+    if (this.isWindows) return this.updateTasksWindows(config);
+    if (this.platform === 'darwin') return this.updateTasksMacOS(config);
   }
 
   async pauseAll() {
-    if (this.isWindows) {
-      return this.pauseAllWindows();
-    } else if (this.platform === 'darwin') {
-      return this.pauseAllMacOS();
-    }
+    if (this.isWindows) return this.pauseAllWindows();
+    if (this.platform === 'darwin') return this.pauseAllMacOS();
   }
 
   async resumeAll() {
-    if (this.isWindows) {
-      return this.resumeAllWindows();
-    } else if (this.platform === 'darwin') {
-      return this.resumeAllMacOS();
-    }
+    if (this.isWindows) return this.resumeAllWindows();
+    if (this.platform === 'darwin') return this.resumeAllMacOS();
+  }
+
+  async cleanupLegacyTasks() {
+    if (this.isWindows) return this.cleanupLegacyTasksWindows();
+    if (this.platform === 'darwin') return this.cleanupLegacyTasksMacOS();
   }
 }
 
