@@ -106,71 +106,120 @@ class App {
   }
 
   renderSettingsView() {
-    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const anchorLabels = {
-      w1Primary: 'W1 Primary',
-      w1Backup: 'W1 Backup',
-      w2Primary: 'W2 Primary',
-      w2Backup: 'W2 Backup',
-      w3Primary: 'W3 Primary',
-      w3Backup: 'W3 Backup',
-      w4Primary: 'W4 Primary',
-      w4Backup: 'W4 Backup'
-    };
+    const cfg = this.config;
+    const startTime = cfg.startTime || '05:00';
+    const windowCount = cfg.windowCount || 4;
+    const windowDuration = cfg.windowDuration || 5;
+    const windowDurationSource = cfg.windowDurationSource || 'auto';
+    const prompt = cfg.prompt || 'New context window open. Reply OK only.';
+    const timezone = cfg.timezone || 'America/Los_Angeles';
 
-    let scheduleGrid = '<div style="overflow-x: auto; margin: 16px 0;"><table style="width: 100%; border-collapse: collapse;">';
-    scheduleGrid += '<tr><th>Day</th>' + anchors.map(a => `<th>${anchorLabels[a]}</th>`).join('') + '</tr>';
+    const radio = (val) => `
+      <label style="margin-right:16px;">
+        <input type="radio" name="window-count" value="${val}"
+               ${windowCount === val ? 'checked' : ''}
+               onchange="app.updateWindowTimesPreview()"> ${val}
+      </label>`;
 
-    days.forEach((day, idx) => {
-      scheduleGrid += `<tr><td><strong>${dayLabels[idx]}</strong></td>`;
-      anchors.forEach(anchor => {
-        const value = this.config.schedule[day][anchor];
-        scheduleGrid += `<td><input type="time" id="time-${day}-${anchor}" value="${value}" style="width: 100%; padding: 4px;"></td>`;
-      });
-      scheduleGrid += '</tr>';
-    });
-    scheduleGrid += '</table></div>';
+    const timezones = [
+      'America/Los_Angeles', 'America/Denver', 'America/Chicago',
+      'America/New_York', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney'
+    ];
 
-    let promptsHtml = '<div style="margin-top: 16px;"><h3>Custom Prompts</h3>';
-    anchors.forEach(anchor => {
-      const prompt = this.config.prompts[anchor] || '';
-      promptsHtml += `
-        <div style="margin: 8px 0;">
-          <label>${anchorLabels[anchor]}</label><br>
-          <textarea id="prompt-${anchor}" style="width: 100%; height: 60px; padding: 8px; margin-top: 4px; font-family: monospace; font-size: 12px;">${prompt}</textarea>
-        </div>
-      `;
-    });
-    promptsHtml += '</div>';
+    const previewText = this.getWindowTimesPreviewFromConfig(startTime, windowCount, windowDuration);
 
     return `
       <h2>Settings</h2>
-      <div class="subtitle">Configure your schedule and preferences</div>
-      <div style="margin: 16px 0;">
-        <label>Timezone</label><br>
-        <select id="timezone" style="width: 100%; padding: 8px; margin-top: 4px;">
-          <option value="America/Los_Angeles">America/Los_Angeles</option>
-          <option value="America/Denver">America/Denver</option>
-          <option value="America/Chicago">America/Chicago</option>
-          <option value="America/New_York">America/New_York</option>
-          <option value="Europe/London">Europe/London</option>
-          <option value="Europe/Paris">Europe/Paris</option>
-          <option value="Asia/Tokyo">Asia/Tokyo</option>
-          <option value="Australia/Sydney">Australia/Sydney</option>
+      <div class="subtitle">Configure your schedule</div>
+
+      <div style="margin:20px 0;">
+        <label style="display:block;font-weight:bold;margin-bottom:6px;">Start Time</label>
+        <input type="time" id="start-time" value="${startTime}"
+               oninput="app.updateWindowTimesPreview()"
+               style="padding:8px;font-size:14px;">
+      </div>
+
+      <div style="margin:20px 0;">
+        <label style="display:block;font-weight:bold;margin-bottom:6px;">Windows per day</label>
+        ${radio(2)}${radio(3)}${radio(4)}
+      </div>
+
+      <div id="window-times-preview"
+           style="margin:-12px 0 20px;color:#6b7280;font-size:13px;">${previewText}</div>
+
+      <div style="margin:20px 0;">
+        <label style="display:block;font-weight:bold;margin-bottom:6px;">Window Duration</label>
+        <div style="color:#6b7280;font-size:13px;margin-bottom:8px;">
+          ${windowDurationSource === 'auto' ? `Auto-detected: ${windowDuration}h` : `Manual: ${windowDuration}h`}
+          <button onclick="app.redetectDuration()" style="margin-left:8px;font-size:12px;">Re-detect</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:13px;">Override:</span>
+          <input type="number" id="duration-override" min="1" max="24"
+                 value="${windowDurationSource === 'manual' ? windowDuration : ''}"
+                 placeholder="hours" style="width:80px;padding:6px;">
+          <button onclick="app.resetDurationToAuto()" style="font-size:12px;">Reset to auto</button>
+        </div>
+      </div>
+
+      <div style="margin:20px 0;">
+        <label style="display:block;font-weight:bold;margin-bottom:6px;">Prompt</label>
+        <textarea id="prompt" rows="3"
+                  style="width:100%;padding:8px;font-family:monospace;font-size:12px;box-sizing:border-box;">${prompt}</textarea>
+      </div>
+
+      <div style="margin:20px 0;">
+        <label style="display:block;font-weight:bold;margin-bottom:6px;">Timezone</label>
+        <select id="timezone" style="width:100%;padding:8px;">
+          ${timezones.map(tz => `<option value="${tz}" ${tz === timezone ? 'selected' : ''}>${tz}</option>`).join('')}
         </select>
       </div>
-      <div style="margin: 16px 0;">
-        <label><input type="checkbox" id="smart-adjustment"> Smart Adjustment</label>
-        <div class="subtitle">Auto-adjust remaining windows if an anchor runs late</div>
-      </div>
-      <h3>Daily Schedule</h3>
-      ${scheduleGrid}
-      <h3>Custom Prompts</h3>
-      ${promptsHtml}
-      <button onclick="app.saveSettings()" style="margin-top: 16px;">Save Settings</button>
+
+      <button onclick="app.saveSettings()" style="margin-top:8px;">Save Settings</button>
     `;
+  }
+
+  getWindowTimesPreviewFromConfig(startTime, windowCount, windowDuration) {
+    const previewConfig = { startTime, windowCount, windowDuration };
+    const windows = StatusService.getWindowTimes(previewConfig);
+    return '→ ' + windows.map(w => w.startStr).join(' · ');
+  }
+
+  updateWindowTimesPreview() {
+    const startTimeEl = document.getElementById('start-time');
+    const windowCountEl = document.querySelector('input[name="window-count"]:checked');
+    const startTime = startTimeEl ? startTimeEl.value : (this.config.startTime || '05:00');
+    const windowCount = windowCountEl ? parseInt(windowCountEl.value) : (this.config.windowCount || 4);
+    const windowDuration = this.config.windowDuration || 5;
+    const previewEl = document.getElementById('window-times-preview');
+    if (previewEl) previewEl.textContent = this.getWindowTimesPreviewFromConfig(startTime, windowCount, windowDuration);
+  }
+
+  async redetectDuration() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Detecting...';
+    try {
+      const updated = await window.api.invoke('detect-window-duration');
+      if (updated) {
+        this.config = await window.api.invoke('load-config');
+        this.renderContent();
+      } else {
+        alert('Could not detect window duration. Check that claude is installed and authenticated.');
+        btn.disabled = false;
+        btn.textContent = 'Re-detect';
+      }
+    } catch (err) {
+      alert('Detection failed: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Re-detect';
+    }
+  }
+
+  async resetDurationToAuto() {
+    this.config.windowDurationSource = 'auto';
+    await window.api.invoke('save-config', this.config);
+    this.renderContent();
   }
 
   renderLogsView() {
@@ -226,44 +275,44 @@ class App {
     try {
       this.config = await window.api.invoke('load-config');
       if (!this.config) throw new Error('No config returned');
-      const tzEl = document.getElementById('timezone');
-      if (tzEl) tzEl.value = this.config.timezone || 'America/Los_Angeles';
-      const saEl = document.getElementById('smart-adjustment');
-      if (saEl) saEl.checked = this.config.smartAdjustment !== false;
     } catch (err) {
       console.error('Failed to load config:', err);
       alert('Error loading settings. Using defaults.');
       this.config = {
+        version: 2,
         timezone: 'America/Los_Angeles',
-        smartAdjustment: true,
+        startTime: '05:00',
+        windowCount: 4,
+        windowDuration: 5,
+        windowDurationSource: 'auto',
         isPaused: false,
-        schedule: {},
-        prompts: {}
+        prompt: 'New context window open. Reply OK only.'
       };
     }
   }
 
   async saveSettings() {
-    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    const anchors = ['w1Primary', 'w1Backup', 'w2Primary', 'w2Backup', 'w3Primary', 'w3Backup', 'w4Primary', 'w4Backup'];
+    const startTime = document.getElementById('start-time').value;
+    const windowCountEl = document.querySelector('input[name="window-count"]:checked');
+    const windowCount = windowCountEl ? parseInt(windowCountEl.value) : this.config.windowCount;
+    const durationOverride = document.getElementById('duration-override').value.trim();
+    const timezone = document.getElementById('timezone').value;
+    const prompt = document.getElementById('prompt').value;
 
-    this.config.timezone = document.getElementById('timezone').value;
-    this.config.smartAdjustment = document.getElementById('smart-adjustment').checked;
+    if (durationOverride) {
+      const hours = parseInt(durationOverride, 10);
+      if (isNaN(hours) || hours < 1 || hours > 24) {
+        alert('Duration override must be a number between 1 and 24');
+        return;
+      }
+      this.config.windowDuration = hours;
+      this.config.windowDurationSource = 'manual';
+    }
 
-    // Collect schedule times
-    days.forEach(day => {
-      this.config.schedule[day] = {};
-      anchors.forEach(anchor => {
-        const input = document.getElementById(`time-${day}-${anchor}`);
-        this.config.schedule[day][anchor] = input.value;
-      });
-    });
-
-    // Collect custom prompts
-    anchors.forEach(anchor => {
-      const textarea = document.getElementById(`prompt-${anchor}`);
-      this.config.prompts[anchor] = textarea.value;
-    });
+    this.config.startTime = startTime;
+    this.config.windowCount = windowCount;
+    this.config.timezone = timezone;
+    this.config.prompt = prompt;
 
     const success = await window.api.invoke('save-config', this.config);
     if (success) {
