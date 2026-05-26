@@ -12,6 +12,16 @@
     "build-mac": "electron-builder --mac",
     "dist": "electron-builder -mwl"
   },
+  "build": {
+    "appId": "com.claudeanchors.app",
+    "productName": "Claude Anchors",
+    "win": {
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "icon": "assets/icon.png"
+    }
+  },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.6.4"
