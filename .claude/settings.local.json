@@ -22,7 +22,8 @@
       "Bash(npm start *)",
       "Bash(node -c electron/main.js)",
       "Bash(node -c src/App.js)",
-      "Bash(node -c src/services/TaskManager.js)"
+      "Bash(node -c src/services/TaskManager.js)",
+      "Bash(npm test *)"
     ]
   }
 }
